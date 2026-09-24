@@ -1,0 +1,24 @@
+{
+  "name": "ecopy-admin-app",
+  "version": "1.0.0",
+  "description": "E-Copy Print Jobs Admin React Native App & Server",
+  "main": "server.js",
+  "scripts": {
+    "server": "node server.js",
+    "client": "cd client && npx expo start --web",
+    "client:mobile": "cd client && npx expo start",
+    "dev": "concurrently -n \"SERVER,CLIENT\" -c \"bgBlue.bold,bgMagenta.bold\" \"node server.js\" \"cd client && npx expo start --web --port 8081\""
+  },
+  "keywords": ["react-native", "expo", "mongodb", "printjobs", "admin"],
+  "author": "Vivek",
+  "license": "ISC",
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.2",
+    "mongoose": "^8.9.5"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  }
+}
