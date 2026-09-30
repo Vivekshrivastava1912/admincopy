@@ -480,59 +480,61 @@ export default function App() {
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <StatusBar barStyle="light-content" backgroundColor="#09090b" />
+      <StatusBar barStyle="light-content" backgroundColor="#09090b" translucent={false} />
       
-      {/* --- TOP HEADER --- */}
-      <View style={styles.header}>
-        <View style={styles.headerLeft}>
-          <View style={styles.logoBadge}>
-            <MaterialCommunityIcons name="printer-pos-outline" size={22} color="#ffffff" />
-          </View>
-          <View>
-            <Text style={styles.headerTitle}>ECOPY ADMIN</Text>
-            <View style={styles.dbStatusRow}>
-              <View style={[styles.statusDot, { backgroundColor: dbConnected ? '#ffffff' : '#52525b' }]} />
-              <Text style={styles.headerSubtitle}>
-                {dbConnected ? 'MONGODB ATLAS LIVE' : 'CONNECTING TO DB...'}
-              </Text>
+      {/* --- TOP HEADER WRAPPER --- */}
+      <View style={styles.headerWrapper}>
+        <View style={styles.header}>
+          <View style={styles.headerLeft}>
+            <View style={styles.logoBadge}>
+              <MaterialCommunityIcons name="printer-pos-outline" size={18} color="#ffffff" />
+            </View>
+            <View style={{ flexShrink: 1 }}>
+              <Text style={styles.headerTitle} numberOfLines={1}>ECOPY ADMIN</Text>
+              <View style={styles.dbStatusRow}>
+                <View style={[styles.statusDot, { backgroundColor: dbConnected ? '#22c55e' : '#52525b' }]} />
+                <Text style={styles.headerSubtitle} numberOfLines={1}>
+                  {dbConnected ? 'ATLAS LIVE' : 'CONNECTING...'}
+                </Text>
+              </View>
             </View>
           </View>
-        </View>
 
-        <View style={styles.headerRight}>
-          <TouchableOpacity 
-            style={styles.iconButton}
-            onPress={() => {
-              setCustomApiInput(apiBaseUrl);
-              setSettingsModalVisible(true);
-            }}
-            title="Backend Settings"
-          >
-            <Ionicons name="settings-outline" size={17} color="#ffffff" />
-          </TouchableOpacity>
+          <View style={styles.headerRight}>
+            <TouchableOpacity 
+              style={styles.iconButton}
+              onPress={() => {
+                setCustomApiInput(apiBaseUrl);
+                setSettingsModalVisible(true);
+              }}
+              title="Backend Settings"
+            >
+              <Ionicons name="settings-outline" size={15} color="#ffffff" />
+            </TouchableOpacity>
 
-          <TouchableOpacity 
-            style={[styles.iconButton, autoRefresh && styles.iconButtonActive]}
-            onPress={() => setAutoRefresh(!autoRefresh)}
-            title="Auto-refresh"
-          >
-            <MaterialCommunityIcons 
-              name={autoRefresh ? "sync" : "sync-off"} 
-              size={18} 
-              color={autoRefresh ? "#000000" : "#a1a1aa"} 
-            />
-            <Text style={[styles.autoRefreshText, autoRefresh && { color: '#000000' }]}>
-              {autoRefresh ? '5s AUTO' : 'PAUSED'}
-            </Text>
-          </TouchableOpacity>
+            <TouchableOpacity 
+              style={[styles.iconButton, autoRefresh && styles.iconButtonActive]}
+              onPress={() => setAutoRefresh(!autoRefresh)}
+              title="Auto-refresh"
+            >
+              <MaterialCommunityIcons 
+                name={autoRefresh ? "sync" : "sync-off"} 
+                size={14} 
+                color={autoRefresh ? "#000000" : "#a1a1aa"} 
+              />
+              <Text style={[styles.autoRefreshText, autoRefresh && { color: '#000000' }]}>
+                {autoRefresh ? '5s' : 'OFF'}
+              </Text>
+            </TouchableOpacity>
 
-          <TouchableOpacity 
-            style={styles.actionButton}
-            onPress={() => setAddModalVisible(true)}
-          >
-            <Ionicons name="add" size={18} color="#000000" />
-            <Text style={styles.actionButtonText}>NEW JOB</Text>
-          </TouchableOpacity>
+            <TouchableOpacity 
+              style={styles.actionButton}
+              onPress={() => setAddModalVisible(true)}
+            >
+              <Ionicons name="add" size={16} color="#000000" />
+              <Text style={styles.actionButtonText}>NEW</Text>
+            </TouchableOpacity>
+          </View>
         </View>
       </View>
 
@@ -810,13 +812,13 @@ export default function App() {
               <View style={styles.cardActionBar}>
                 {job.cloudinaryUrl || job.filePreviewData ? (
                   <View style={styles.cloudinaryBadge}>
-                    <Ionicons name="cloud-done-outline" size={13} color="#38bdf8" style={{ marginRight: 4 }} />
-                    <Text style={styles.cloudinaryBadgeText}>CLOUDINARY ATTACHED</Text>
+                    <Ionicons name="cloud-done-outline" size={12} color="#38bdf8" style={{ marginRight: 4 }} />
+                    <Text style={styles.cloudinaryBadgeText} numberOfLines={1}>CLOUD READY</Text>
                   </View>
                 ) : (
                   <View style={[styles.cloudinaryBadge, { backgroundColor: '#1c1c20', borderColor: '#27272a' }]}>
-                    <Ionicons name="cloud-offline-outline" size={13} color="#71717a" style={{ marginRight: 4 }} />
-                    <Text style={[styles.cloudinaryBadgeText, { color: '#71717a' }]}>NO CLOUD FILE</Text>
+                    <Ionicons name="cloud-offline-outline" size={12} color="#71717a" style={{ marginRight: 4 }} />
+                    <Text style={[styles.cloudinaryBadgeText, { color: '#71717a' }]} numberOfLines={1}>NO FILE</Text>
                   </View>
                 )}
 
@@ -833,9 +835,9 @@ export default function App() {
                   activeOpacity={0.8}
                 >
                   {printingJobId === (job._id || job.jobId) ? (
-                    <ActivityIndicator size="small" color="#000000" style={{ marginRight: 6 }} />
+                    <ActivityIndicator size="small" color="#000000" style={{ marginRight: 4 }} />
                   ) : (
-                    <MaterialCommunityIcons name="printer-pos" size={16} color="#000000" style={{ marginRight: 6 }} />
+                    <MaterialCommunityIcons name="printer-pos" size={14} color="#000000" style={{ marginRight: 4 }} />
                   )}
                   <Text style={styles.cardPrintButtonText}>
                     {printingJobId === (job._id || job.jobId) ? 'PRINTING...' : 'PRINT (OTG)'}
@@ -1331,68 +1333,81 @@ const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
     backgroundColor: '#09090b',
+    paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight || 28) : 0,
   },
   container: {
     flex: 1,
     backgroundColor: '#09090b',
+    width: '100%',
   },
   contentContainer: {
-    paddingHorizontal: 16,
+    paddingHorizontal: 12,
     paddingBottom: 40,
+    maxWidth: 700,
+    width: '100%',
+    alignSelf: 'center',
   },
 
   // Header Styles
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 14,
+  headerWrapper: {
+    width: '100%',
     borderBottomWidth: 1,
     borderBottomColor: '#27272a',
     backgroundColor: '#09090b',
   },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    maxWidth: 700,
+    width: '100%',
+    alignSelf: 'center',
+  },
   headerLeft: {
     flexDirection: 'row',
     alignItems: 'center',
+    flexShrink: 1,
   },
   logoBadge: {
-    width: 38,
-    height: 38,
-    borderRadius: 8,
+    width: 32,
+    height: 32,
+    borderRadius: 7,
     backgroundColor: '#18181b',
     borderWidth: 1,
     borderColor: '#3f3f46',
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 12,
+    marginRight: 8,
   },
   headerTitle: {
     color: '#ffffff',
-    fontSize: 16,
-    fontWeight: '800',
-    letterSpacing: 1.2,
+    fontSize: 14,
+    fontWeight: '900',
+    letterSpacing: 0.8,
   },
   dbStatusRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 2,
+    marginTop: 1,
   },
   statusDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    marginRight: 6,
+    width: 5,
+    height: 5,
+    borderRadius: 2.5,
+    marginRight: 4,
   },
   headerSubtitle: {
     color: '#a1a1aa',
-    fontSize: 10,
+    fontSize: 9,
     fontWeight: '700',
-    letterSpacing: 0.8,
+    letterSpacing: 0.5,
   },
   headerRight: {
     flexDirection: 'row',
     alignItems: 'center',
+    flexShrink: 0,
   },
   iconButton: {
     flexDirection: 'row',
@@ -1400,10 +1415,10 @@ const styles = StyleSheet.create({
     backgroundColor: '#18181b',
     borderWidth: 1,
     borderColor: '#27272a',
-    paddingHorizontal: 10,
-    paddingVertical: 6,
+    paddingHorizontal: 7,
+    paddingVertical: 5,
     borderRadius: 6,
-    marginRight: 8,
+    marginRight: 5,
   },
   iconButtonActive: {
     backgroundColor: '#ffffff',
@@ -1411,22 +1426,22 @@ const styles = StyleSheet.create({
   },
   autoRefreshText: {
     color: '#a1a1aa',
-    fontSize: 10,
-    fontWeight: '700',
-    marginLeft: 4,
+    fontSize: 9,
+    fontWeight: '800',
+    marginLeft: 3,
   },
   actionButton: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#ffffff',
-    paddingHorizontal: 12,
-    paddingVertical: 7,
+    paddingHorizontal: 9,
+    paddingVertical: 5,
     borderRadius: 6,
   },
   actionButtonText: {
     color: '#000000',
-    fontSize: 11,
-    fontWeight: '800',
+    fontSize: 10,
+    fontWeight: '900',
     marginLeft: 2,
     letterSpacing: 0.5,
   },
@@ -1842,8 +1857,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: 10,
-    marginBottom: 10,
+    flexWrap: 'wrap',
+    gap: 6,
+    paddingVertical: 8,
+    marginBottom: 8,
     borderBottomWidth: 1,
     borderBottomColor: '#1f1f23',
   },
@@ -1853,9 +1870,10 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(56, 189, 248, 0.1)',
     borderWidth: 1,
     borderColor: 'rgba(56, 189, 248, 0.3)',
-    paddingHorizontal: 8,
+    paddingHorizontal: 7,
     paddingVertical: 4,
     borderRadius: 6,
+    flexShrink: 1,
   },
   cloudinaryBadgeText: {
     color: '#38bdf8',
@@ -1867,8 +1885,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#ffffff',
-    paddingHorizontal: 12,
-    paddingVertical: 7,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
     borderRadius: 6,
     shadowColor: '#ffffff',
     shadowOffset: { width: 0, height: 2 },
@@ -1881,7 +1899,7 @@ const styles = StyleSheet.create({
   },
   cardPrintButtonText: {
     color: '#000000',
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: '900',
     letterSpacing: 0.5,
   },
