@@ -49,6 +49,12 @@ const printJobSchema = new mongoose.Schema({
   filterMode: { type: String, default: 'bw' },
   rotation: { type: Number, default: 0 },
   filePreviewData: { type: String, default: null },
+  cloudinaryUrl: { type: String, default: null },
+  cloudinaryPublicId: { type: String, default: null },
+  cloudinaryPublicIds: { type: [String], default: [] },
+  cloudinaryResourceType: { type: String, default: 'image' },
+  isFilePurged: { type: Boolean, default: false },
+  feedbackStatus: { type: String, default: null },
   notes: { type: String, default: '' }
 }, {
   timestamps: true,

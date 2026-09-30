@@ -13,12 +13,17 @@ import {
   RefreshControl,
   Dimensions,
   Platform,
-  Alert
+  Alert,
+  Image,
+  Linking
 } from 'react-native';
 import { Ionicons, MaterialCommunityIcons, Feather } from '@expo/vector-icons';
+import * as Print from 'expo-print';
+import * as FileSystem from 'expo-file-system';
+import * as Sharing from 'expo-sharing';
 
-// Default API URL - can be your deployed Vercel backend or localhost
-const DEFAULT_API_BASE = 'http://localhost:5000/api';
+// Live Vercel Backend Cloud API
+const DEFAULT_API_BASE = 'https://admincopy-tau.vercel.app/api';
 
 export default function App() {
   const [apiBaseUrl, setApiBaseUrl] = useState(DEFAULT_API_BASE);
@@ -39,6 +44,8 @@ export default function App() {
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [dbConnected, setDbConnected] = useState(false);
   const [jsonViewActive, setJsonViewActive] = useState(false);
+  const [printingJobId, setPrintingJobId] = useState(null);
+  const [printStatusMessage, setPrintStatusMessage] = useState('');
 
   // New Job Form State for testing
   const [newJobForm, setNewJobForm] = useState({
@@ -209,6 +216,243 @@ export default function App() {
     }
   };
 
+  // --- CLOUDINARY FILE DOWNLOAD & OTG PRINTING LOGIC ---
+  const handlePrintJob = async (job) => {
+    const fileUrl = job?.cloudinaryUrl || job?.filePreviewData || job?.fileUrl || job?.url;
+
+    if (!fileUrl) {
+      const msg = `Job ${job?.jobId || ''} does not have a Cloudinary URL or file attached.`;
+      if (Platform.OS === 'web') {
+        window.alert(msg);
+      } else {
+        Alert.alert('No Document Attached', msg);
+      }
+      return;
+    }
+
+    setPrintingJobId(job._id || job.jobId);
+    setPrintStatusMessage(`Downloading & Preparing ${job.fileName || 'document'}...`);
+
+    try {
+      const isPdf = (job.fileType && job.fileType.toLowerCase() === 'pdf') ||
+                    (job.fileName && job.fileName.toLowerCase().endsWith('.pdf')) ||
+                    fileUrl.toLowerCase().includes('.pdf');
+
+      // Update status to PRINTING in MongoDB
+      if (job.status !== 'PRINTING' && job.status !== 'COMPLETED') {
+        handleUpdateStatus(job._id, 'PRINTING');
+      }
+
+      const isGrayscale = !job.isColor || job.filterMode === 'bw' || job.filterMode === 'grayscale';
+      const rotationAngle = job.rotation || 0;
+      const paper = job.paperSize || 'A4';
+      const isLandscape = rotationAngle === 90 || rotationAngle === 270;
+
+      if (Platform.OS === 'web') {
+        setPrintStatusMessage('Routing to USB / OTG / System Printer...');
+        if (!isPdf) {
+          const htmlContent = `
+            <!DOCTYPE html>
+            <html>
+              <head>
+                <meta charset="utf-8">
+                <title>Print - ${job.jobId} - ${job.fileName || 'Document'}</title>
+                <style>
+                  @page {
+                    size: ${paper} ${isLandscape ? 'landscape' : 'portrait'};
+                    margin: 0mm;
+                  }
+                  * { box-sizing: border-box; }
+                  body, html {
+                    margin: 0;
+                    padding: 0;
+                    width: 100%;
+                    height: 100%;
+                    background: #ffffff;
+                    display: flex;
+                    justify-content: center;
+                    align-items: center;
+                  }
+                  .print-container {
+                    width: 100%;
+                    height: 100%;
+                    display: flex;
+                    justify-content: center;
+                    align-items: center;
+                    padding: 8mm;
+                  }
+                  img {
+                    max-width: 100%;
+                    max-height: 100%;
+                    object-fit: contain;
+                    ${isGrayscale ? 'filter: grayscale(100%) contrast(110%); -webkit-filter: grayscale(100%) contrast(110%);' : ''}
+                    ${rotationAngle ? `transform: rotate(${rotationAngle}deg);` : ''}
+                  }
+                </style>
+              </head>
+              <body>
+                <div class="print-container">
+                  <img src="${fileUrl}" onload="setTimeout(function(){ window.print(); }, 400);" />
+                </div>
+              </body>
+            </html>
+          `;
+
+          const printWindow = window.open('', '_blank');
+          if (printWindow) {
+            printWindow.document.open();
+            printWindow.document.write(htmlContent);
+            printWindow.document.close();
+          } else {
+            const iframe = document.createElement('iframe');
+            iframe.style.position = 'fixed';
+            iframe.style.right = '0';
+            iframe.style.bottom = '0';
+            iframe.style.width = '0';
+            iframe.style.height = '0';
+            iframe.style.border = '0';
+            document.body.appendChild(iframe);
+            iframe.contentDocument.write(htmlContent);
+            iframe.contentDocument.close();
+            iframe.contentWindow.focus();
+            setTimeout(() => {
+              iframe.contentWindow.print();
+              setTimeout(() => {
+                if (document.body.contains(iframe)) document.body.removeChild(iframe);
+              }, 2000);
+            }, 800);
+          }
+        } else {
+          const pdfWindow = window.open(fileUrl, '_blank');
+          if (pdfWindow) {
+            pdfWindow.focus();
+            setTimeout(() => {
+              try { pdfWindow.print(); } catch (e) {}
+            }, 1000);
+          }
+        }
+
+        setPrintStatusMessage('Print job sent to system spooler!');
+        setTimeout(() => setPrintingJobId(null), 2500);
+
+      } else {
+        // Native Android / iOS (OTG Cable / USB Print via Android Print Service)
+        setPrintStatusMessage('Downloading file from Cloudinary...');
+
+        if (!isPdf) {
+          const html = `
+            <!DOCTYPE html>
+            <html>
+              <head>
+                <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no" />
+                <style>
+                  @page {
+                    size: ${paper} ${isLandscape ? 'landscape' : 'portrait'};
+                    margin: 0mm;
+                  }
+                  body {
+                    margin: 0;
+                    padding: 0;
+                    display: flex;
+                    justify-content: center;
+                    align-items: center;
+                    min-height: 100vh;
+                    background-color: #ffffff;
+                  }
+                  img {
+                    max-width: 100%;
+                    max-height: 100vh;
+                    object-fit: contain;
+                    ${isGrayscale ? 'filter: grayscale(100%) contrast(110%);' : ''}
+                    ${rotationAngle ? `transform: rotate(${rotationAngle}deg);` : ''}
+                  }
+                </style>
+              </head>
+              <body>
+                <img src="${fileUrl}" />
+              </body>
+            </html>
+          `;
+
+          setPrintStatusMessage('Sending to OTG / USB Cable Printer...');
+          await Print.printAsync({
+            html,
+            orientation: isLandscape ? Print.Orientation.landscape : Print.Orientation.portrait,
+          });
+
+        } else {
+          const ext = 'pdf';
+          const localUri = `${FileSystem.cacheDirectory}print_${job.jobId || Date.now()}.${ext}`;
+          
+          setPrintStatusMessage('Caching PDF locally...');
+          const downloadRes = await FileSystem.downloadAsync(fileUrl, localUri);
+          
+          setPrintStatusMessage('Sending to OTG / USB Cable Printer...');
+          await Print.printAsync({
+            uri: downloadRes.uri,
+            orientation: isLandscape ? Print.Orientation.landscape : Print.Orientation.portrait,
+          });
+        }
+
+        setPrintStatusMessage('✅ Sent to OTG Printer!');
+        setTimeout(() => setPrintingJobId(null), 3000);
+      }
+    } catch (err) {
+      console.error('Print error:', err);
+      const errMsg = err.message || 'Failed to communicate with printer via OTG / USB cable.';
+      if (Platform.OS === 'web') {
+        window.alert(`Print Error: ${errMsg}`);
+      } else {
+        Alert.alert('Print Error', errMsg);
+      }
+      setPrintingJobId(null);
+    }
+  };
+
+  // Download File to Device
+  const handleDownloadFile = async (job) => {
+    const fileUrl = job?.cloudinaryUrl || job?.filePreviewData || job?.fileUrl || job?.url;
+    if (!fileUrl) {
+      Alert.alert('Error', 'No Cloudinary file URL found.');
+      return;
+    }
+
+    try {
+      if (Platform.OS === 'web') {
+        const link = document.createElement('a');
+        link.href = fileUrl;
+        link.download = job.fileName || 'download';
+        link.target = '_blank';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+      } else {
+        const ext = job.fileType || 'jpg';
+        const localUri = `${FileSystem.documentDirectory}${job.fileName || `file_${job.jobId}.${ext}`}`;
+        const downloadRes = await FileSystem.downloadAsync(fileUrl, localUri);
+        if (await Sharing.isAvailableAsync()) {
+          await Sharing.shareAsync(downloadRes.uri);
+        } else {
+          Alert.alert('Downloaded', `Saved to ${downloadRes.uri}`);
+        }
+      }
+    } catch (err) {
+      console.error('Download error:', err);
+      Alert.alert('Download Error', err.message);
+    }
+  };
+
+  const handleOpenUrl = (url) => {
+    if (!url) return;
+    if (Platform.OS === 'web') {
+      window.open(url, '_blank');
+    } else {
+      Linking.openURL(url).catch(err => {
+        Alert.alert('Cannot Open URL', err.message);
+      });
+    }
+  };
+
   // Extract unique kiosk list for filter
   const kioskList = useMemo(() => {
     const set = new Set(['ALL']);
@@ -300,6 +544,19 @@ export default function App() {
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#ffffff" colors={['#ffffff']} />
         }
       >
+        {/* --- GLOBAL OTG PRINTING NOTIFICATION BANNER --- */}
+        {printingJobId && (
+          <View style={styles.printNotificationBanner}>
+            <ActivityIndicator size="small" color="#000000" style={{ marginRight: 10 }} />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.printNotificationTitle}>OTG / USB PRINTER DISPATCH</Text>
+              <Text style={styles.printNotificationText}>
+                {printStatusMessage || 'Processing Cloudinary document & sending to printer...'}
+              </Text>
+            </View>
+          </View>
+        )}
+
         {/* --- LIVE STATS STRIP --- */}
         <View style={styles.statsContainer}>
           <View style={styles.statCard}>
@@ -549,6 +806,43 @@ export default function App() {
                 </View>
               </View>
 
+              {/* Cloudinary & Quick OTG Print Action Bar */}
+              <View style={styles.cardActionBar}>
+                {job.cloudinaryUrl || job.filePreviewData ? (
+                  <View style={styles.cloudinaryBadge}>
+                    <Ionicons name="cloud-done-outline" size={13} color="#38bdf8" style={{ marginRight: 4 }} />
+                    <Text style={styles.cloudinaryBadgeText}>CLOUDINARY ATTACHED</Text>
+                  </View>
+                ) : (
+                  <View style={[styles.cloudinaryBadge, { backgroundColor: '#1c1c20', borderColor: '#27272a' }]}>
+                    <Ionicons name="cloud-offline-outline" size={13} color="#71717a" style={{ marginRight: 4 }} />
+                    <Text style={[styles.cloudinaryBadgeText, { color: '#71717a' }]}>NO CLOUD FILE</Text>
+                  </View>
+                )}
+
+                <TouchableOpacity
+                  style={[
+                    styles.cardPrintButton,
+                    printingJobId === (job._id || job.jobId) && styles.cardPrintButtonActive
+                  ]}
+                  onPress={(e) => {
+                    if (e && e.stopPropagation) e.stopPropagation();
+                    handlePrintJob(job);
+                  }}
+                  disabled={printingJobId === (job._id || job.jobId)}
+                  activeOpacity={0.8}
+                >
+                  {printingJobId === (job._id || job.jobId) ? (
+                    <ActivityIndicator size="small" color="#000000" style={{ marginRight: 6 }} />
+                  ) : (
+                    <MaterialCommunityIcons name="printer-pos" size={16} color="#000000" style={{ marginRight: 6 }} />
+                  )}
+                  <Text style={styles.cardPrintButtonText}>
+                    {printingJobId === (job._id || job.jobId) ? 'PRINTING...' : 'PRINT (OTG)'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+
               {/* Footer Meta Row */}
               <View style={styles.cardFooter}>
                 <View style={styles.timestampRow}>
@@ -564,7 +858,7 @@ export default function App() {
                 </View>
 
                 <View style={styles.previewPrompt}>
-                  <Text style={styles.previewPromptText}>VIEW DETAILS</Text>
+                  <Text style={styles.previewPromptText}>INSPECT</Text>
                   <Ionicons name="chevron-forward" size={14} color="#a1a1aa" />
                 </View>
               </View>
@@ -629,6 +923,102 @@ export default function App() {
                 <ScrollView style={styles.modalScroll}>
                   {!jsonViewActive ? (
                     <View style={styles.detailsContainer}>
+                      {/* Cloudinary & OTG Hardware Dispatch Card */}
+                      <View style={styles.cloudinarySection}>
+                        <View style={styles.cloudinaryHeaderRow}>
+                          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                            <MaterialCommunityIcons name="cloud-sync-outline" size={18} color="#38bdf8" style={{ marginRight: 6 }} />
+                            <Text style={styles.cloudinaryHeaderTitle}>CLOUDINARY & OTG PRINT</Text>
+                          </View>
+                          <View style={styles.otgStatusTag}>
+                            <Ionicons name="hardware-chip-outline" size={12} color="#4ade80" style={{ marginRight: 4 }} />
+                            <Text style={styles.otgStatusTagText}>OTG CABLE READY</Text>
+                          </View>
+                        </View>
+
+                        {selectedJob.cloudinaryUrl || selectedJob.filePreviewData ? (
+                          <>
+                            {/* Preview Thumbnail if image */}
+                            {(selectedJob.fileType?.toLowerCase() !== 'pdf' && 
+                              !(selectedJob.fileName && selectedJob.fileName.toLowerCase().endsWith('.pdf'))) && (
+                              <View style={styles.previewImageWrapper}>
+                                <Image
+                                  source={{ uri: selectedJob.cloudinaryUrl || selectedJob.filePreviewData }}
+                                  style={styles.modalImageThumbnail}
+                                  resizeMode="contain"
+                                />
+                              </View>
+                            )}
+
+                            <DetailRow 
+                              label="Cloudinary URL" 
+                              value={selectedJob.cloudinaryUrl || selectedJob.filePreviewData} 
+                              isCode 
+                            />
+                            {selectedJob.cloudinaryPublicId && (
+                              <DetailRow label="Public ID" value={selectedJob.cloudinaryPublicId} isCode />
+                            )}
+                            {selectedJob.cloudinaryResourceType && (
+                              <DetailRow label="Resource Type" value={selectedJob.cloudinaryResourceType} />
+                            )}
+
+                            {/* Main OTG Dispatch Button */}
+                            <TouchableOpacity
+                              style={[
+                                styles.otgPrintMainBtn,
+                                printingJobId === (selectedJob._id || selectedJob.jobId) && styles.otgPrintMainBtnActive
+                              ]}
+                              onPress={() => handlePrintJob(selectedJob)}
+                              disabled={printingJobId === (selectedJob._id || selectedJob.jobId)}
+                              activeOpacity={0.85}
+                            >
+                              {printingJobId === (selectedJob._id || selectedJob.jobId) ? (
+                                <ActivityIndicator size="small" color="#000000" style={{ marginRight: 8 }} />
+                              ) : (
+                                <MaterialCommunityIcons name="printer-pos" size={20} color="#000000" style={{ marginRight: 8 }} />
+                              )}
+                              <Text style={styles.otgPrintMainBtnText}>
+                                {printingJobId === (selectedJob._id || selectedJob.jobId) 
+                                  ? (printStatusMessage || 'DISPATCHING TO OTG PRINTER...') 
+                                  : '🖨️ SEND TO OTG / USB PRINTER'}
+                              </Text>
+                            </TouchableOpacity>
+
+                            {/* Secondary Action Buttons */}
+                            <View style={styles.modalActionButtonsRow}>
+                              <TouchableOpacity
+                                style={styles.modalSubActionBtn}
+                                onPress={() => handleDownloadFile(selectedJob)}
+                              >
+                                <Ionicons name="download-outline" size={14} color="#ffffff" style={{ marginRight: 5 }} />
+                                <Text style={styles.modalSubActionBtnText}>DOWNLOAD FILE</Text>
+                              </TouchableOpacity>
+
+                              <TouchableOpacity
+                                style={styles.modalSubActionBtn}
+                                onPress={() => handleOpenUrl(selectedJob.cloudinaryUrl || selectedJob.filePreviewData)}
+                              >
+                                <Ionicons name="open-outline" size={14} color="#ffffff" style={{ marginRight: 5 }} />
+                                <Text style={styles.modalSubActionBtnText}>OPEN CLOUD URL</Text>
+                              </TouchableOpacity>
+                            </View>
+
+                            <View style={styles.otgHelpBox}>
+                              <Ionicons name="information-circle-outline" size={14} color="#94a3b8" style={{ marginRight: 6, marginTop: 1 }} />
+                              <Text style={styles.otgHelpText}>
+                                Connect your printer via OTG Cable or USB. Tapping print will stream the document directly to the printer spooler.
+                              </Text>
+                            </View>
+                          </>
+                        ) : (
+                          <View style={styles.noCloudinaryContainer}>
+                            <Ionicons name="cloud-offline-outline" size={28} color="#71717a" style={{ marginBottom: 6 }} />
+                            <Text style={styles.noCloudinaryText}>No Cloudinary URL found on this job record.</Text>
+                            <Text style={styles.noCloudinarySubText}>Check if the kiosk uploaded the file successfully.</Text>
+                          </View>
+                        )}
+                      </View>
+
                       {/* Document Overview Card */}
                       <View style={styles.detailSection}>
                         <Text style={styles.detailSectionHeader}>DOCUMENT & FILE INFO</Text>
@@ -1447,6 +1837,82 @@ const styles = StyleSheet.create({
     fontSize: 13,
   },
 
+  // Card Action Bar (Quick OTG Print & Cloudinary Tag)
+  cardActionBar: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 10,
+    marginBottom: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#1f1f23',
+  },
+  cloudinaryBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(56, 189, 248, 0.1)',
+    borderWidth: 1,
+    borderColor: 'rgba(56, 189, 248, 0.3)',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+  },
+  cloudinaryBadgeText: {
+    color: '#38bdf8',
+    fontSize: 9,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+  },
+  cardPrintButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#ffffff',
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 6,
+    shadowColor: '#ffffff',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  cardPrintButtonActive: {
+    backgroundColor: '#38bdf8',
+  },
+  cardPrintButtonText: {
+    color: '#000000',
+    fontSize: 11,
+    fontWeight: '900',
+    letterSpacing: 0.5,
+  },
+
+  // Global OTG Printing Notification Banner
+  printNotificationBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#38bdf8',
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 14,
+    shadowColor: '#38bdf8',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 6,
+  },
+  printNotificationTitle: {
+    color: '#000000',
+    fontSize: 12,
+    fontWeight: '900',
+    letterSpacing: 0.5,
+  },
+  printNotificationText: {
+    color: '#09090b',
+    fontSize: 11,
+    fontWeight: '600',
+    marginTop: 1,
+  },
+
   // Card Footer
   cardFooter: {
     flexDirection: 'row',
@@ -1570,6 +2036,140 @@ const styles = StyleSheet.create({
   detailsContainer: {
     paddingVertical: 6,
   },
+
+  // Cloudinary & OTG Hardware Dispatch Card
+  cloudinarySection: {
+    marginBottom: 20,
+    backgroundColor: '#131317',
+    borderRadius: 12,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#2a2a32',
+  },
+  cloudinaryHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  cloudinaryHeaderTitle: {
+    color: '#38bdf8',
+    fontSize: 11,
+    fontWeight: '900',
+    letterSpacing: 0.8,
+  },
+  otgStatusTag: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(74, 222, 128, 0.12)',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: 'rgba(74, 222, 128, 0.3)',
+  },
+  otgStatusTagText: {
+    color: '#4ade80',
+    fontSize: 9,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+  },
+  previewImageWrapper: {
+    width: '100%',
+    height: 180,
+    backgroundColor: '#09090b',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#27272a',
+    marginVertical: 10,
+    overflow: 'hidden',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalImageThumbnail: {
+    width: '100%',
+    height: '100%',
+  },
+  otgPrintMainBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#ffffff',
+    paddingVertical: 14,
+    borderRadius: 8,
+    marginTop: 14,
+    marginBottom: 10,
+    shadowColor: '#ffffff',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 6,
+    elevation: 4,
+  },
+  otgPrintMainBtnActive: {
+    backgroundColor: '#38bdf8',
+  },
+  otgPrintMainBtnText: {
+    color: '#000000',
+    fontSize: 13,
+    fontWeight: '900',
+    letterSpacing: 0.6,
+  },
+  modalActionButtonsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+  },
+  modalSubActionBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#1e1e24',
+    borderWidth: 1,
+    borderColor: '#32323a',
+    paddingVertical: 9,
+    borderRadius: 6,
+    marginHorizontal: 4,
+  },
+  modalSubActionBtnText: {
+    color: '#ffffff',
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+  },
+  otgHelpBox: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    backgroundColor: '#18181f',
+    padding: 10,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#262630',
+  },
+  otgHelpText: {
+    color: '#94a3b8',
+    fontSize: 10,
+    fontWeight: '500',
+    lineHeight: 14,
+    flex: 1,
+  },
+  noCloudinaryContainer: {
+    paddingVertical: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  noCloudinaryText: {
+    color: '#a1a1aa',
+    fontSize: 12,
+    fontWeight: '700',
+    marginBottom: 2,
+  },
+  noCloudinarySubText: {
+    color: '#52525b',
+    fontSize: 10,
+    fontWeight: '500',
+  },
+
   detailSection: {
     marginBottom: 20,
     backgroundColor: '#18181b',
